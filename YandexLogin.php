@@ -27,6 +27,10 @@ defined('ABSPATH') || die();
 
 final class YandexLogin
 {
+
+    public static $provider_name = 'Yandex';
+    public static $endpoint = '/socialify/Yandex/';
+
     public static $data = [
         'settings_section_title' => 'Yandex Login',
         'setting_title_id' => 'Yandex ID',
@@ -35,7 +39,6 @@ final class YandexLogin
 
     public static $option_name = 'socialify_config_yandex';
 
-    public static $endpoint = '/socialify/Yandex/';
 
     public static function init(){
 
@@ -47,8 +50,11 @@ final class YandexLogin
                 return;
             }
 
+            add_filter('socialify_auth_process', [__CLASS__, 'auth_process'], 11, 2);
+//            add_filter('socialify_user_profile', [__CLASS__, 'auth_handler'], 11, 2);
+
+
             add_action('admin_init', [__CLASS__, 'add_settings']);
-            add_filter('socialify_user_profile', [__CLASS__, 'auth_handler'], 11, 2);
 
             add_filter('socialify_shortcode_data', [__CLASS__, 'add_btn_for_shortcode']);
 
@@ -57,23 +63,58 @@ final class YandexLogin
     }
 
     /**
-     * add_btn_for_shortcode
+     * apply_filters('socialify_auth_process', $auth_process_data);
      */
-    public static function add_btn_for_shortcode($data)
+    public static function auth_process($auth_process_data, $endpoint)
     {
-        $data['login_items']['yandex'] = [
-            'url' => self::$endpoint,
-            'ico_url' => plugin_dir_url( __FILE__ ) . 'assets/yandex.svg',
-        ];
-        return $data;
+        /**
+         * if not that provider - exit
+         */
+        if (self::$provider_name != $endpoint) {
+            return $auth_process_data;
+        }
+
+
+        if(!$config = self::get_config()){
+            return $auth_process_data;
+        }
+
+        $adapter = new \Hybridauth\Provider\Yandex($config);
+
+
+        if(!empty($_GET['redirect_to'])){
+            $redirect_to = $_GET['redirect_to'];
+            $adapter->getStorage()->set('socialify_redirect_to', $redirect_to);
+        }
+
+        //Attempt to authenticate the user with Facebook
+        if($accessToken = $adapter->getAccessToken()){
+            $adapter->setAccessToken($accessToken);
+        }
+
+        $adapter->authenticate();
+
+        //Retrieve the user's profile
+//        $userProfile = $adapter->getUserProfile();
+
+        $auth_process_data['user_data'] = $adapter->getUserProfile();
+        $auth_process_data['redirect_to'] = $adapter->getStorage()->get('socialify_redirect_to');
+        $auth_process_data['provider'] = self::$provider_name;
+
+        //Disconnect the adapter
+        $adapter->disconnect();
+
+        return $auth_process_data;
+
     }
+
 
     /**
      * auth_handler
      */
     public static function auth_handler($userProfile, $endpoint)
     {
-        if('Yandex' != $endpoint){
+        if(self::$provider_name != $endpoint){
             return $userProfile;
         }
 
@@ -97,6 +138,19 @@ final class YandexLogin
         $adapter->disconnect();
 
         return $userProfile;
+    }
+
+
+    /**
+     * add_btn_for_shortcode
+     */
+    public static function add_btn_for_shortcode($data)
+    {
+        $data['login_items']['yandex'] = [
+            'url' => self::$endpoint,
+            'ico_url' => plugin_dir_url( __FILE__ ) . 'assets/yandex.svg',
+        ];
+        return $data;
     }
 
     /**
